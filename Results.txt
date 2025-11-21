@@ -1,0 +1,102 @@
+Estimating 1st-order transfer function with tfest (or fallback)...
+Estimated Transfer Function (motor_tf):
+
+motor_tf =
+ 
+  From input "u1" to output "y1":
+    200.5
+  ---------
+  s + 2.008
+ 
+Continuous-time identified transfer function.
+
+Parameterization:
+   Number of poles: 1   Number of zeros: 0
+   Number of free coefficients: 2
+   Use "tfdata", "getpvec", "getcov" for parameters and their uncertainties.
+
+Status:                                          
+Estimated using TFEST on time domain data "data".
+Fit to estimation data: 94.06%                   
+FPE: 3.677, MSE: 3.637                           
+ 
+Model Properties
+Estimated DC gain K_est = 99.861
+Estimated time constant tau_est = 0.498 s
+
+Estimating 1-state state-space model with ssest...
+Estimated State-Space Model (motor_ss):
+
+motor_ss =
+  Continuous-time identified state-space model:
+      dx/dt = A x(t) + B u(t) + K e(t)
+       y(t) = C x(t) + D u(t) + e(t)
+ 
+  A = 
+           x1
+   x1  -2.018
+ 
+  B = 
+           u1
+   x1  0.4497
+ 
+  C = 
+          x1
+   y1  447.8
+ 
+  D = 
+       u1
+   y1   0
+ 
+  K = 
+              y1
+   x1  -0.004753
+ 
+Parameterization:
+   FREE form (all coefficients in A, B, C free).
+   Feedthrough: none
+   Disturbance component: estimate
+   Number of free coefficients: 4
+   Use "idssdata", "getpvec", "getcov" for parameters and their uncertainties.
+
+Status:                                          
+Estimated using SSEST on time domain data "data".
+Fit to estimation data: 94.08% (prediction focus)
+FPE: 3.66, MSE: 3.621                            
+ 
+Model Properties
+Numeric fit (TF model) = 94.06%
+RMSE between measured output and TF simulation: 2.001012 (units of output)
+Tuning PID (pidtune) and plotting closed-loop response...
+
+PID controller obtained by pidtune:
+  pid with properties:
+
+              Kp: 0.0143
+              Ki: 0.0522
+              Kd: 0
+              Tf: 0
+        IFormula: ''
+        DFormula: ''
+      InputDelay: 0
+     OutputDelay: 0
+       InputName: {''}
+       InputUnit: {''}
+      InputGroup: [1×1 struct]
+      OutputName: {''}
+      OutputUnit: {''}
+     OutputGroup: [1×1 struct]
+           Notes: [0×1 string]
+        UserData: []
+            Name: ''
+              Ts: 0
+        TimeUnit: 'seconds'
+    SamplingGrid: [1×1 struct]
+
+Saved identification results to dc_motor_id_results.mat
+
+--- Project Summary ---
+Simulated a first-order DC motor (K=100.0, tau=0.50 s), generated noisy step data.
+Estimated a first-order transfer function using tfest/oe -> Estimated K = 99.861, tau = 0.498 s.
+Validated with compare() and residual analysis. Tuned a PID controller with pidtune (or fallback P-test) and simulated closed-loop.
+--- End of script ---

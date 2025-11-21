@@ -1,0 +1,201 @@
+clear; close all; clc;
+
+%% -------------------------
+% 0) Settings & reproducibility
+
+rng(0);                     
+Ts = 0.01;                  
+t_end = 5;                  
+t = (0:Ts:t_end)';          
+
+%% -------------------------
+% 1) True system (for simulating "measured" data)
+
+K_true = 100;               
+tau_true = 0.5;             
+sys_true = tf(K_true, [tau_true 1]);   
+
+
+[y_true, t_out] = step(sys_true, t);   
+
+
+noise_std = 0.02 * max(y_true);   
+y_meas = y_true + noise_std * randn(size(y_true));
+
+% Input: 1 V step applied at t=0
+u = ones(size(t));
+
+
+if isrow(y_meas), y_meas = y_meas'; end
+if isrow(u),      u = u';      end
+if length(y_meas) ~= length(u)
+    error('Input and output lengths do not match: %d vs %d', length(u), length(y_meas));
+end
+
+% Plot simulated noisy data
+figure('Name','Simulated Measured Data');
+plot(t, y_meas, 'LineWidth', 1.2); hold on;
+plot(t, y_true, '--', 'LineWidth', 1.4);
+xlabel('Time (s)'); ylabel('Output (speed)');
+legend('Noisy measured output','True noiseless output','Location','Southeast');
+title('Simulated Step Response (Measured Data)');
+grid on;
+%% 
+% 2) Creating iddata object
+nx = 50;                % number of samples to prepend (e.g. 50 samples = 0.5s if Ts=0.01)
+u_zero = zeros(nx,1);
+y_zero = zeros(nx,1);   
+
+u2 = [u_zero; ones(size(t))];      
+t2 = (0:Ts:(length(u2)-1)*Ts)';    
+y2 = [y_zero; y_meas];             
+data = iddata(y2, u2, Ts);
+
+
+
+%% -------------------------
+% 3) Transfer function estimation (1 pole)
+
+disp('Estimating 1st-order transfer function with tfest (or fallback)...');
+motor_tf = [];
+try
+    motor_tf = tfest(data, 1);   
+catch ME
+    warning('tfest failed: %s\nTrying oe() + idtf() fallback.', ME.message);
+    try
+        model_oe = oe(data, [1 1 0]);  % nb=1, nf=1, nk=0
+        motor_tf = idtf(model_oe);
+    catch ME2
+        error('Both tfest and OE fallback failed: %s', ME2.message);
+    end
+end
+
+% Display the estimated TF
+disp('Estimated Transfer Function (motor_tf):');
+motor_tf
+
+% Extract DC gain and time constant from the estimated TF (1 pole)
+K_est = NaN; tau_est = NaN;
+try
+    K_est = dcgain(motor_tf);
+    poles_est = pole(motor_tf);
+    if ~isempty(poles_est)
+        tau_est = -1/real(poles_est(1));
+    end
+catch
+end
+
+fprintf('Estimated DC gain K_est = %.3f\n', K_est);
+fprintf('Estimated time constant tau_est = %.3f s\n\n', tau_est);
+
+%% -------------------------
+% 4) State-space estimation (1 state)
+
+disp('Estimating 1-state state-space model with ssest...');
+try
+    motor_ss = ssest(data, 1);
+    disp('Estimated State-Space Model (motor_ss):');
+    motor_ss
+catch ME
+    warning('ssest failed: %s', ME.message);
+    motor_ss = [];
+end
+
+%%
+% 5) Model validation: compare measured data vs model output
+
+figure('Name','Model Validation - Time Domain (TF Model)');
+compare(data, motor_tf);
+title('Time-domain Validation: measured data vs TF model');
+
+% Numeric compare (if available in this MATLAB version)
+try
+    [~, Fit_tf] = compare(data, motor_tf);
+    fprintf('Numeric fit (TF model) = %.2f%%\n', Fit_tf);
+catch
+    fprintf('Numeric fit not returned by compare(...) in this MATLAB version.\n');
+end
+
+if ~isempty(motor_ss)
+    figure('Name','Model Validation - Time Domain (State-Space)');
+    compare(data, motor_ss);
+    title('Time-domain Validation: measured data vs State-Space model');
+end
+
+%% -------------------------
+% 6) Residual analysis (whiteness check)
+figure('Name','Residuals - TF model');
+resid(data, motor_tf);
+title('Residuals for TF Model');
+
+% Compute RMSE using lsim (works for tf LTI)
+try
+    y_sim = lsim(motor_tf, u, t);    % y_sim is column vector
+    rmse = sqrt(mean((y_meas - y_sim).^2));
+    fprintf('RMSE between measured output and TF simulation: %.6f (units of output)\n', rmse);
+catch ME
+    warning('lsim simulation failed: %s', ME.message);
+end
+
+%% -------------------------
+% 7) Bode / Frequency Response (optional)
+figure('Name','Bode - Estimated TF vs True');
+try
+    bode(sys_true, motor_tf);
+    legend('True system','Estimated TF');
+    title('Frequency Response Comparison');
+catch ME
+    warning('bode plot failed: %s', ME.message);
+end
+
+%% -------------------------
+% 8) Simple PID design & closed-loop verification
+
+disp('Tuning PID (pidtune) and plotting closed-loop response...');
+pidC = [];
+try
+    pidC = pidtune(motor_tf, 'PID');        % design PID
+    closed_loop = feedback(pidC * motor_tf, 1);
+    figure('Name','Closed-loop Step Response with PID');
+    step(closed_loop, t);
+    title('Closed-loop response (PID controller)');
+    grid on;
+    fprintf('\nPID controller obtained by pidtune:\n');
+    disp(pidC);
+catch ME
+    warning('pidtune or feedback failed: %s\nPerforming simple P-controller simulation instead.', ME.message);
+    try
+        Kp = 0.05;
+        control_signal = Kp * (1 - y_meas);    % simple error-based P control (reference=1)
+        y_cl = lsim(motor_tf, control_signal, t);
+        figure('Name','Approx Closed-loop (P-control, fallback)');
+        plot(t, y_cl, 'LineWidth', 1.2); hold on;
+        plot(t, y_meas, '--');
+        legend('Closed-loop approx','Measured open-loop');
+        title('Approx Closed-loop with simple P controller');
+    catch
+        warning('Fallback closed-loop simulation also failed: %s', ME.message);
+    end
+end
+
+%% -------------------------
+% 9) Save results and models (optional)
+
+save_models = true;
+if save_models
+    try
+        save('dc_motor_id_results.mat', 'motor_tf', 'motor_ss', 'pidC', 'data', ...
+             'K_true', 'tau_true', 'K_est', 'tau_est');
+        fprintf('Saved identification results to dc_motor_id_results.mat\n');
+    catch
+        warning('Failed to save results .mat file.');
+    end
+end
+
+%% -------------------------
+% 10) Print short summary
+fprintf('\n--- Project Summary ---\n');
+fprintf('Simulated a first-order DC motor (K=%.1f, tau=%.2f s), generated noisy step data.\n', K_true, tau_true);
+fprintf('Estimated a first-order transfer function using tfest/oe -> Estimated K = %.3f, tau = %.3f s.\n', K_est, tau_est);
+fprintf('Validated with compare() and residual analysis. Tuned a PID controller with pidtune (or fallback P-test) and simulated closed-loop.\n');
+fprintf('--- End of script ---\n');
